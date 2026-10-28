@@ -113,7 +113,6 @@ function RNAContent() { return <RNAStrand/>; }
 export default function MoleculeScene({ mode="dna", selectedBase="A", compact=false }: { mode?:string; selectedBase?:Base; compact?:boolean }) {
   return <div className={compact?"scene scene-compact":"scene"}>
     <Canvas camera={{position:[0,0,7.3],fov:42}} dpr={[1,1.6]} gl={{antialias:true,alpha:true}}>
-      <color attach="background" args={["#000000"]} />
       <ambientLight intensity={1.15}/>
       <directionalLight position={[4,5,6]} intensity={2.1}/>
       <directionalLight position={[-4,-2,-5]} intensity={.85} color="#c6dcff"/>
