@@ -1,106 +1,125 @@
 "use client";
 
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Html } from "@react-three/drei";
+import { Html, OrbitControls } from "@react-three/drei";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
 
 type Base = "A" | "T" | "G" | "C" | "U";
-const colors: Record<Base, string> = { A: "#df4d50", T: "#397ac5", G: "#27966a", C: "#d6ad24", U: "#8a5ac8" };
+const baseColors: Record<Base, string> = { A: "#df4d50", T: "#397ac5", G: "#27966a", C: "#d6ad24", U: "#8a5ac8" };
+const atomColors = { carbon: "#738196", nitrogen: "#397ac5", oxygen: "#df4d50", phosphorus: "#e5a04a", hydrogen: "#f6f8fb" };
 
-function Atom({ position, color, radius = 0.18 }: { position: [number, number, number]; color: string; radius?: number }) {
-  return <mesh position={position}><sphereGeometry args={[radius, 24, 24]} /><meshStandardMaterial color={color} roughness={0.32} metalness={0.08} /></mesh>;
+function Atom({ position, color, radius = 0.11 }: { position: [number, number, number]; color: string; radius?: number }) {
+  return <mesh position={position}><sphereGeometry args={[radius, 20, 20]} /><meshStandardMaterial color={color} roughness={0.28} metalness={0.04} /></mesh>;
 }
-
-function Bond({ from, to, color = "#b8c4d2", radius = 0.045 }: { from: THREE.Vector3; to: THREE.Vector3; color?: string; radius?: number }) {
-  const mid = from.clone().add(to).multiplyScalar(0.5);
+function Bond({ from, to, color = "#9eacbd", radius = 0.025 }: { from: THREE.Vector3; to: THREE.Vector3; color?: string; radius?: number }) {
   const direction = to.clone().sub(from);
   const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
-  return <mesh position={mid} quaternion={quaternion}><cylinderGeometry args={[radius, radius, direction.length(), 10]} /><meshStandardMaterial color={color} roughness={0.45} /></mesh>;
+  return <mesh position={from.clone().add(to).multiplyScalar(.5)} quaternion={quaternion}><cylinderGeometry args={[radius, radius, direction.length(), 8]} /><meshStandardMaterial color={color} roughness={0.4} /></mesh>;
 }
-
-function BaseModel({ base, position, scale = 1 }: { base: Base; position: [number, number, number]; scale?: number }) {
-  const color = colors[base];
-  const isPurine = base === "A" || base === "G";
-  const ringPositions = isPurine
-    ? [[-0.23,0,0],[0,0.2,0],[0.23,0,0],[0,-0.2,0],[-0.23,0,0],[-0.46,0.16,0],[-0.66,0,0],[-0.46,-0.16,0]]
-    : [[-0.25,0.18,0],[0,0.3,0],[0.25,0.18,0],[0.25,-0.18,0],[0,-0.3,0],[-0.25,-0.18,0]];
-  const pts = ringPositions.map(p => new THREE.Vector3(p[0]*scale,p[1]*scale,p[2]*scale));
+function Backbone({ points, color }: { points: THREE.Vector3[]; color: string }) {
+  const geometry = useMemo(() => new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 90, .055, 8, false), [points]);
+  return <mesh geometry={geometry}><meshStandardMaterial color={color} roughness={.36} metalness={.04} /></mesh>;
+}
+function BaseRing({ base, position, scale = 1 }: { base: Base; position: [number, number, number]; scale?: number }) {
+  const purine = base === "A" || base === "G";
+  const points = purine
+    ? [[-.2,.12,0],[0,.24,0],[.2,.12,0],[.2,-.12,0],[0,-.24,0],[-.2,-.12,0],[-.39,.02,0],[-.58,.13,0],[-.76,.02,0],[-.76,-.16,0],[-.57,-.25,0],[-.39,-.16,0]]
+    : [[-.24,.16,0],[0,.28,0],[.24,.16,0],[.24,-.16,0],[0,-.28,0],[-.24,-.16,0]];
+  const pts = points.map(p => new THREE.Vector3(p[0]*scale,p[1]*scale,p[2]*scale));
+  const colors = pts.map((_,i) => i%4===0 ? atomColors.nitrogen : i%5===0 ? atomColors.oxygen : atomColors.carbon);
   return <group position={position}>
-    {pts.map((p,i)=><Atom key={i} position={[p.x,p.y,p.z]} color={i%3===0?"#f5f7fa":color} radius={0.095*scale}/>)}
-    {pts.map((p,i)=><Bond key={i} from={p} to={pts[(i+1)%pts.length]} color={color} radius={0.028*scale}/>)}
-    <Html position={[0,-0.53*scale,0]} center distanceFactor={7} style={{pointerEvents:"none"}}><span className="atom-label" style={{color}}>{base}</span></Html>
+    {pts.map((p,i)=><Atom key={"a"+i} position={[p.x,p.y,p.z]} color={colors[i]} radius={.07*scale}/>)}
+    {pts.map((p,i)=><Bond key={"b"+i} from={p} to={pts[(i+1)%pts.length]} color="#8f9db0" radius={.025*scale}/>)}
+    <Html position={[0,-.48*scale,.05]} center distanceFactor={7} style={{pointerEvents:"none"}}><span className="atom-label" style={{color:baseColors[base],fontWeight:800}}>{base}</span></Html>
   </group>;
 }
-
-function Helix({ mode, selectedBase }: { mode: string; selectedBase: Base }) {
-  const group = useRef<THREE.Group>(null);
-  useFrame((state, delta) => {
-    if (group.current && mode === "dna") group.current.rotation.y += delta * 0.13;
-  });
-  const pairs = useMemo(() => Array.from({length:13},(_,i) => {
-    const t = i/12;
-    const angle = t*Math.PI*4.8;
-    const y = (t-.5)*4.4;
-    return { i, angle, y, left: new THREE.Vector3(Math.cos(angle)*0.9,y,Math.sin(angle)*0.9), right: new THREE.Vector3(-Math.cos(angle)*0.9,y,-Math.sin(angle)*0.9) };
-  }), []);
-  const letters: Base[] = ["A","G","C","T","T","A","C","G","A","T","G","C","A"];
-  if (mode === "base") return <group>
-    <BaseModel base={selectedBase} position={[0,0,0]} scale={1.8}/>
-    <Atom position={[0,0.85,0]} color="#f0a34a" radius={0.26}/>
-    <Bond from={new THREE.Vector3(0,0.5,0)} to={new THREE.Vector3(0,0.62,0)} color="#d6a25a" radius={0.055}/>
-    <Atom position={[0,-0.85,0]} color="#8d9cb1" radius={0.26}/>
-    <Bond from={new THREE.Vector3(0,-0.5,0)} to={new THREE.Vector3(0,-0.62,0)} color="#8d9cb1" radius={0.055}/>
-    <Html position={[0,-1.4,0]} center><span className="scene-caption">Մոդել՝ ուսումնական սխեմա</span></Html>
-  </group>;
-  if (mode === "rna") return <group>
-    {Array.from({length:13},(_,i)=>{
-      const x=(i-6)*0.31;
-      const b: Base = (["A","U","G","C","A","U","C","G","U","A","C","G","U"] as Base[])[i];
-      return <group key={i}>
-        <Atom position={[x,Math.sin(i*.7)*.22,0]} color="#e8a06d" radius={0.11}/>
-        <Atom position={[x,Math.sin(i*.7)*.22+.28,0]} color={colors[b]} radius={0.16}/>
-        <Bond from={new THREE.Vector3(x,Math.sin(i*.7)*.22,0)} to={new THREE.Vector3(x,Math.sin(i*.7)*.22+.28,0)} color="#e5a06e" radius={0.035}/>
-        <Html position={[x,Math.sin(i*.7)*.22+.52,0]} center distanceFactor={8}><span className="atom-label" style={{color:colors[b]}}>{b}</span></Html>
-      </group>;
-    })}
-    <Html position={[0,-.85,0]} center><span className="scene-caption">Միաշղթա ՌՆԹ-ի սխեմատիկ մոդել</span></Html>
-  </group>;
-  if (mode === "pair") {
-    const pair: Base = selectedBase === "A" ? "T" : selectedBase === "T" ? "A" : selectedBase === "G" ? "C" : selectedBase === "C" ? "G" : "A";
-    return <group>
-      <BaseModel base={selectedBase} position={[-.8,0,0]} scale={1.2}/>
-      <BaseModel base={pair} position={[.8,0,0]} scale={1.2}/>
-      {[0,1,2].slice(0, selectedBase==="A"||selectedBase==="T"?2:3).map((n)=><Bond key={n} from={new THREE.Vector3(-.18,.12-n*.12,0)} to={new THREE.Vector3(.18,.12-n*.12,0)} color="#8d9cb1" radius={.025}/>)}
-      <Html position={[0,-1.05,0]} center><span className="scene-caption">Հիմքերի զույգի ուսումնական մոդել</span></Html>
-    </group>;
-  }
-  return <group ref={group}>
-    {pairs.map((p) => {
-      const a = letters[p.i];
-      const b: Base = a === "A" ? "T" : a === "T" ? "A" : a === "G" ? "C" : "G";
-      return <group key={p.i}>
-        <Atom position={[p.left.x,p.left.y,p.left.z]} color={colors[a]} radius={0.13}/>
-        <Atom position={[p.right.x,p.right.y,p.right.z]} color={colors[b]} radius={0.13}/>
-        <Bond from={p.left} to={p.right} color="#b9c4d1" radius={0.025}/>
-        {p.i < pairs.length-1 && <>
-          <Bond from={p.left} to={pairs[p.i+1].left} color="#9bb9d6" radius={0.04}/>
-          <Bond from={p.right} to={pairs[p.i+1].right} color="#9bb9d6" radius={0.04}/>
-        </>}
-      </group>;
-    })}
-    <Html position={[0,-2.6,0]} center><span className="scene-caption">ԴՆԹ-ի երկպարույրի պարզեցված 3D մոդել</span></Html>
+function DNAHelix() {
+  const root = useRef<THREE.Group>(null);
+  const nodes = useMemo(() => Array.from({length:17},(_,i) => {
+    const t=i/16, angle=t*Math.PI*5.4, y=(t-.5)*4.4;
+    const left=new THREE.Vector3(Math.cos(angle)*.88,y,Math.sin(angle)*.88);
+    const right=new THREE.Vector3(-Math.cos(angle)*.88,y,-Math.sin(angle)*.88);
+    const letters: Base[]=["A","G","C","T","T","A","C","G","A","T","G","C","A","G","T","C","A"];
+    const a=letters[i], b:Base=a==="A"?"T":a==="T"?"A":a==="G"?"C":"G";
+    return {i,left,right,a,b};
+  }),[]);
+  const leftPoints=useMemo(()=>nodes.map(n=>n.left),[nodes]);
+  const rightPoints=useMemo(()=>nodes.map(n=>n.right),[nodes]);
+  useFrame((_,delta)=>{if(root.current)root.current.rotation.y+=delta*.12;});
+  return <group ref={root}>
+    <Backbone points={leftPoints} color="#d9e5f3"/><Backbone points={rightPoints} color="#c8d9ee"/>
+    {nodes.map(n=><group key={n.i}>
+      <Atom position={[n.left.x,n.left.y,n.left.z]} color={atomColors.phosphorus} radius={.105}/>
+      <Atom position={[n.right.x,n.right.y,n.right.z]} color={atomColors.phosphorus} radius={.105}/>
+      <Bond from={n.left} to={n.right} color="#b6c4d4" radius={.022}/>
+      <Atom position={[(n.left.x*.56+n.right.x*.44),(n.left.y+n.right.y)/2,(n.left.z*.56+n.right.z*.44)]} color={baseColors[n.a]} radius={.12}/>
+      <Atom position={[(n.left.x*.44+n.right.x*.56),(n.left.y+n.right.y)/2,(n.left.z*.44+n.right.z*.56)]} color={baseColors[n.b]} radius={.12}/>
+    </group>)}
+    <Html position={[0,-2.52,0]} center><span className="scene-caption">ԴՆԹ-ի երկպարույր · ուսումնական 3D սխեմա</span></Html>
   </group>;
 }
+function RNAStrand() {
+  const points=useMemo(()=>Array.from({length:15},(_,i)=>new THREE.Vector3((i-7)*.28,Math.sin(i*.68)*.4,Math.cos(i*.48)*.12)),[]);
+  const letters:Base[]=["A","U","G","C","A","U","C","G","U","A","C","G","U","A","G"];
+  return <group>
+    <Backbone points={points} color="#e7a77d"/>
+    {points.map((p,i)=><group key={i}>
+      <Atom position={[p.x,p.y,p.z]} color={atomColors.phosphorus} radius={.09}/>
+      <Bond from={p} to={new THREE.Vector3(p.x,p.y+.27,p.z)} color="#dca27b" radius={.025}/>
+      <Atom position={[p.x,p.y+.31,p.z]} color={baseColors[letters[i]]} radius={.13}/>
+      <Html position={[p.x,p.y+.51,p.z]} center distanceFactor={8} style={{pointerEvents:"none"}}><span className="atom-label" style={{color:baseColors[letters[i]]}}>{letters[i]}</span></Html>
+    </group>)}
+    <Html position={[0,-.9,0]} center><span className="scene-caption">ՌՆԹ-ի մեկ շղթայի սխեմատիկ մոդել</span></Html>
+  </group>;
+}
+function BasePair({ selectedBase }: { selectedBase: Base }) {
+  const partner: Base = selectedBase==="A"?"T":selectedBase==="T"?"A":selectedBase==="G"?"C":selectedBase==="C"?"G":"A";
+  const rnaPair = selectedBase==="U";
+  return <group>
+    <BaseRing base={selectedBase} position={[-.82,0,0]} scale={1.15}/>
+    <BaseRing base={partner} position={[.82,0,0]} scale={1.15}/>
+    {[0,1,2].slice(0,selectedBase==="A"||selectedBase==="T"||rnaPair?2:3).map(i=><Bond key={i} from={new THREE.Vector3(-.22,.1-i*.1,.02)} to={new THREE.Vector3(.22,.1-i*.1,.02)} color="#8f9db0" radius={.028}/>)}
+    <Html position={[0,-1.05,0]} center><span className="scene-caption">{rnaPair?"ՌՆԹ հիմքի ուսումնական օրինակ":"Հիմքերի զույգ · սխեմատիկ մոդել"}</span></Html>
+  </group>;
+}
+function SelectedBase({ selectedBase }: { selectedBase: Base }) {
+  return <group>
+    <BaseRing base={selectedBase} position={[0,0,0]} scale={1.8}/>
+    <Atom position={[0,.85,.02]} color={atomColors.phosphorus} radius={.2}/>
+    <Bond from={new THREE.Vector3(0,.52,.02)} to={new THREE.Vector3(0,.67,.02)} color={atomColors.phosphorus} radius={.04}/>
+    <Atom position={[0,-.85,.02]} color={atomColors.oxygen} radius={.2}/>
+    <Bond from={new THREE.Vector3(0,-.52,.02)} to={new THREE.Vector3(0,-.67,.02)} color={atomColors.oxygen} radius={.04}/>
+    <Html position={[0,-1.45,0]} center><span className="scene-caption">Հիմքի օղակային սխեմա · ոչ ատոմային ճշգրիտ կառուցվածք</span></Html>
+  </group>;
+}
+function SceneContent({ mode, selectedBase }: { mode:string; selectedBase:Base }) {
+  if(mode==="rna") return <RNAWithMotion selectedBase={selectedBase}/>;
+  if(mode==="pair") return <BasePair selectedBase={selectedBase}/>;
+  if(mode==="base") return <SelectedBase selectedBase={selectedBase}/>;
+  return <DNAHelix/>;
+}
+function RNAWithMotion({selectedBase}:{selectedBase:Base}) {
+  const group=useRef<THREE.Group>(null);
+  useFrame((_,delta)=>{if(group.current)group.current.rotation.y+=delta*.045;});
+  return <group ref={group}><RNASeed selectedBase={selectedBase}/></group>;
+}
+function RNASeed({selectedBase}:{selectedBase:Base}) {
+  return <group><RNAVisual/><Html position={[0,1.25,0]} center><span className="scene-caption">Ընտրված հիմք՝ {selectedBase}</span></Html></group>;
+}
+function RNAVisual() { return <RNAContent/>; }
+function RNAContent() { return <RNAStrand/>; }
 
-export default function MoleculeScene({ mode = "dna", selectedBase = "A", compact = false }: { mode?: string; selectedBase?: Base; compact?: boolean }) {
-  return <div className={compact ? "scene scene-compact" : "scene"}>
-    <Canvas camera={{position:[0,0,7], fov:42}} dpr={[1,1.7]} gl={{antialias:true,alpha:true}}>
+export default function MoleculeScene({ mode="dna", selectedBase="A", compact=false }: { mode?:string; selectedBase?:Base; compact?:boolean }) {
+  return <div className={compact?"scene scene-compact":"scene"}>
+    <Canvas camera={{position:[0,0,7.3],fov:42}} dpr={[1,1.6]} gl={{antialias:true,alpha:true}}>
+      <color attach="background" args={["#000000"]} />
       <ambientLight intensity={1.15}/>
-      <directionalLight position={[4,5,6]} intensity={2.2}/>
-      <directionalLight position={[-4,-2,-5]} intensity={0.8} color="#c6dcff"/>
-      <Helix mode={mode} selectedBase={selectedBase}/>
-      <OrbitControls enablePan={false} minDistance={3} maxDistance={11} />
+      <directionalLight position={[4,5,6]} intensity={2.1}/>
+      <directionalLight position={[-4,-2,-5]} intensity={.85} color="#c6dcff"/>
+      <pointLight position={[0,2,4]} intensity={.5} color="#fff0dc"/>
+      <SceneContent mode={mode} selectedBase={selectedBase}/>
+      <OrbitControls enablePan={false} minDistance={3.2} maxDistance={10.5} enableDamping dampingFactor={.07}/>
     </Canvas>
   </div>;
 }
