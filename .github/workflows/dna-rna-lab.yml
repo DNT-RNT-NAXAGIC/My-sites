@@ -1,0 +1,34 @@
+name: DNA RNA Lab CI
+
+on:
+  pull_request:
+    paths:
+      - "dna-rna-lab/**"
+      - ".github/workflows/dna-rna-lab.yml"
+  push:
+    branches:
+      - feature/dna-rna-lab
+    paths:
+      - "dna-rna-lab/**"
+      - ".github/workflows/dna-rna-lab.yml"
+
+jobs:
+  verify:
+    name: TypeScript and production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dna-rna-lab
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: TypeScript check
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
